@@ -1,6 +1,7 @@
 require('dotenv').config()
 
 const PORT = process.env.PORT
+const IP_ADDRESS = process.env.IP_ADDRESS
 
 const FIREBASE_CONFIG = {
   apiKey: process.env.FIREBASE_API_KEY,
@@ -13,6 +14,7 @@ const FIREBASE_CONFIG = {
 };
 
 module.exports = {
-    PORT,
-    FIREBASE_CONFIG
+  IP_ADDRESS,
+  PORT,
+  FIREBASE_CONFIG
 }

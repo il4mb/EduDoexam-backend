@@ -8,33 +8,44 @@ const requestLogger = (request, response, next) => {
   next()
 }
 
+
 const unknownEndpoint = (request, response) => {
-  response.status(404).send({ error: 'unknown endpoint' })
+  response.status(404).send({ error: true, message: 'unknown endpoint' })
 }
 
 const errorHandler = (error, request, response, next) => {
-  logger.error(error.message);
 
-  if (error.name === 'CastError') {
-    return response.status(400).send({
-      error: true,
-      message: 'malformatted id'
-    });
-  } else if (error.name === 'ValidationError') {
-    return response.status(400).json({
+  logger.error(error);
+
+  const firebaseErrors = {
+    "auth/invalid-credential": { status: 401, message: "Invalid Credential." },
+    "auth/user-disabled": { status: 403, message: "User account has been disabled by an administrator." },
+    "auth/user-not-found": { status: 404, message: "No user found with the provided credentials." },
+    "auth/email-already-in-use": { status: 409, message: "The email address is already in use by another account." },
+    "auth/weak-password": { status: 400, message: "The password must be at least 6 characters long." },
+    "auth/invalid-email": { status: 400, message: "The provided email is invalid." },
+    "auth/operation-not-allowed": { status: 403, message: "The requested operation is not allowed." },
+    "auth/too-many-requests": { status: 429, message: "Too many requests. Please try again later." },
+    "auth/account-exists-with-different-credential": {status: 409, message: "An account already exists with the same email address but different sign-in credentials."},
+    "auth/requires-recent-login": {status: 401, message: "This operation requires recent login. Please log in again.",},
+    "auth/invalid-verification-code": { status: 400, message: "The verification code is invalid." },
+    "auth/invalid-verification-id": { status: 400, message: "The verification ID is invalid." },
+  };
+  
+
+  if (error.name == "FirebaseError") {
+
+    if (firebaseErrors[error.code]) {
+      const { status, message } = firebaseErrors[error.code];
+      return response.status(status||500).json({ error: true, message: (message || error.message) });
+    }
+
+  } else {
+
+    response.status(500).json({
       error: true,
       message: error.message
-    });
-  } else if (error.name === 'JsonWebTokenError') {
-    return response.status(401).json({
-      error: true,
-      message: 'token invalid'
-    });
-  } else if (error.name === 'TokenExpiredError') {
-    return response.status(401).json({
-      error: true,
-      message: 'token expired'
-    });
+    })
   }
 
   // Pass the error to the default error handler if it's not handled here

@@ -5,38 +5,48 @@ const { FIREBASE_CONFIG } = require("../utils/config");
 const firebase = initializeApp(FIREBASE_CONFIG);
 const auth = getAuth(firebase);
 
-authRouter.post('/login', async (request, response) => {
+authRouter.post('/login', async (req, res, next) => {
 
-    const { email, password } = request.body;
+    const { email, password } = req.body;
 
     try {
 
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        const user  = userCredential.user;
+        if (!email || !password) {
+            throw new Error("Please enter email and password")
+        }
+        if (!/[a-z0-9.-_]+\@\w{3,}\.[a-z0-9.]{2,}/im.test(email)) {
+            throw new Error("Please valid email address")
+        }
+        if (password.length < 8) {
+            throw new Error("Invalid password, please enter minimum 8 character")
+        }
+
+        console.log(email)
+
+        const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password.trim());
+        const user = userCredential.user;
         const token = await user.getIdToken();
 
-        response.status(200).json({ 
+        res.status(200).json({
             error: false,
-            message: "Login successful", 
-            user: {
-                userId: user.uid, 
-                token
-            } 
+            message: "Login successful",
+            token: token
         });
 
     } catch (error) {
-        
-        response.status(400).json({ 
-            error: true,
-            message: error.message 
-        });
+
+        next(error)
+        // res.status(400).json({
+        //     error: true,
+        //     message: error.message
+        // });
     }
 });
 
 
 // Register route
 authRouter.post('/register', async (request, response) => {
-    
+
     const { name, gender, email, password } = request.body;
 
     try {
@@ -54,17 +64,17 @@ authRouter.post('/register', async (request, response) => {
         const docRef = db.collection('users').doc(user.uid);
         await docRef.set({ name: name, gender: gender });
 
-        response.status(201).json({ 
+        response.status(201).json({
             error: false,
-            message: "User registered successfully", 
-            userId: user.uid 
+            message: "User registered successfully",
+            userId: user.uid
         });
 
     } catch (error) {
-        
-        response.status(400).json({ 
+
+        response.status(400).json({
             error: true,
-            message: error.message 
+            message: error.message
         });
     }
 });

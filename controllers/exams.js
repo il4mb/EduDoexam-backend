@@ -108,6 +108,49 @@ const getExamUsers = async (examId) => {
     }
 };
 
+router.get("/upcoming", middleware.userExtractor, async (req, res, next) => {
+    try {
+        
+        const db = getFirestore();
+
+        const uid = req.user.uid; // Extract user ID
+        const tableRef = db.collection("exams");
+
+        // Calculate the date for one week ago
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+        // Query exams containing uid in "users" field and with startDate > oneWeekAgo
+        const querySnapshot = await tableRef
+            .where("users", "array-contains", uid)
+            .where("startDate", ">", oneWeekAgo)
+            .get();
+
+        // Check if no matching documents were found
+        if (querySnapshot.empty) {
+            console.log("No matching documents.");
+            return res.status(404).json({ message: "No upcoming exams found." });
+        }
+
+        // Map the results into a response array
+        const exams = querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+        }));
+
+        console.log(exams)
+
+        res.json({
+            error: false,
+            exams: exams
+        });
+
+    } catch (error) {
+        next(error);
+    }
+});
+
+
 // Route to create an exam
 router.post("/", middleware.userExtractor, async (req, res) => {
 
