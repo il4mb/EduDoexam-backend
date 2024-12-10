@@ -1,11 +1,5 @@
 require('dotenv').config()
 const path = require("path")
-const admin = require("firebase-admin");
-admin.initializeApp({
-  credential: admin.credential.cert(require(`./${process.env.FIREBASE_ACCOUNT_SERVICE_JSON}`))
-});
-
-
 
 const express = require('express');
 const cors = require('cors');

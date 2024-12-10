@@ -1,4 +1,3 @@
-const { request } = require('express')
 const logger = require('./logger')
 
 const requestLogger = (request, response, next) => {
@@ -68,7 +67,8 @@ const userExtractor = async (request, response, next) => {
 
   if (token) {
     try {
-      const admin = require("firebase-admin");
+      const { getAdmin } = require("../utils/firebase")
+      const admin = getAdmin()
       const decodedToken = await admin.auth().verifyIdToken(token);
 
       if (!decodedToken.uid) {
@@ -97,7 +97,7 @@ const userExtractor = async (request, response, next) => {
 
 const examOwner = async (req, res, next) => {
   const user = req.user;
-  
+
   if (!user) {
     return res.status(401).json({
       error: true,
@@ -112,7 +112,7 @@ const examOwner = async (req, res, next) => {
 
     // Fetch the exam document
     const examDoc = await examRef.get();
-    
+
     // If the exam doesn't exist
     if (!examDoc.exists) {
       return res.status(404).json({

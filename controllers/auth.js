@@ -1,12 +1,10 @@
 const authRouter = require('express').Router();
-const { initializeApp } = require("firebase/app");
+const { getClient } = require("../utils/firebase")
 const { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword } = require("firebase/auth");
 const { getFirestore } = require('firebase-admin/firestore');
-const { FIREBASE_CONFIG } = require("../utils/config");
-const firebase = initializeApp(FIREBASE_CONFIG);
+
+const firebase = getClient()
 const auth = getAuth(firebase);
-
-
 
 authRouter.post('/login', async (req, res, next) => {
 
@@ -23,8 +21,6 @@ authRouter.post('/login', async (req, res, next) => {
         if (password.length < 8) {
             throw new Error("Invalid password, please enter minimum 8 character")
         }
-
-        console.log(email)
 
         const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password.trim());
         const user = userCredential.user;
