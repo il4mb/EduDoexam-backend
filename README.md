@@ -49,7 +49,6 @@ Sample `.env` file:
 
 ```
 PORT=8081
-IP_ADDRESS=your local ip address
 
 FIREBASE_API_KEY=
 FIREBASE_AUTH_DOMAIN=
