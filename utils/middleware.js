@@ -1,3 +1,4 @@
+const { request } = require('express')
 const logger = require('./logger')
 
 const requestLogger = (request, response, next) => {
@@ -26,18 +27,18 @@ const errorHandler = (error, request, response, next) => {
     "auth/invalid-email": { status: 400, message: "The provided email is invalid." },
     "auth/operation-not-allowed": { status: 403, message: "The requested operation is not allowed." },
     "auth/too-many-requests": { status: 429, message: "Too many requests. Please try again later." },
-    "auth/account-exists-with-different-credential": {status: 409, message: "An account already exists with the same email address but different sign-in credentials."},
-    "auth/requires-recent-login": {status: 401, message: "This operation requires recent login. Please log in again.",},
+    "auth/account-exists-with-different-credential": { status: 409, message: "An account already exists with the same email address but different sign-in credentials." },
+    "auth/requires-recent-login": { status: 401, message: "This operation requires recent login. Please log in again.", },
     "auth/invalid-verification-code": { status: 400, message: "The verification code is invalid." },
     "auth/invalid-verification-id": { status: 400, message: "The verification ID is invalid." },
   };
-  
+
 
   if (error.name == "FirebaseError") {
 
     if (firebaseErrors[error.code]) {
       const { status, message } = firebaseErrors[error.code];
-      return response.status(status||500).json({ error: true, message: (message || error.message) });
+      return response.status(status || 500).json({ error: true, message: (message || error.message) });
     }
 
   } else {
@@ -94,10 +95,54 @@ const userExtractor = async (request, response, next) => {
   }
 };
 
+const examOwner = async (req, res, next) => {
+  const user = req.user;
+  
+  if (!user) {
+    return res.status(401).json({
+      error: true,
+      message: 'User is missing'
+    });
+  }
+
+  try {
+    const examId = req.params.examId; // Get examId from the URL parameter
+    const db = getFirestore();
+    const examRef = db.collection("exams").doc(examId); // Reference to the exam document
+
+    // Fetch the exam document
+    const examDoc = await examRef.get();
+    
+    // If the exam doesn't exist
+    if (!examDoc.exists) {
+      return res.status(404).json({
+        error: true,
+        message: 'Exam not found'
+      });
+    }
+
+    // Check if the current user is the owner of the exam
+    const examData = examDoc.data();
+    if (examData.createdBy !== user.uid) { // Assuming `user.uid` is the ID of the logged-in user
+      return res.status(403).json({
+        error: true,
+        message: 'You are not the owner of this exam'
+      });
+    }
+
+    // If the user is the owner, move to the next middleware or route handler
+    next();
+
+  } catch (err) {
+    return next(err);
+  }
+};
+
 module.exports = {
   requestLogger,
   unknownEndpoint,
   errorHandler,
   userExtractor,
-  tokenExtractor
+  tokenExtractor,
+  examOwner
 }

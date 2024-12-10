@@ -1,9 +1,12 @@
 const authRouter = require('express').Router();
 const { initializeApp } = require("firebase/app");
 const { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword } = require("firebase/auth");
+const { getFirestore } = require('firebase-admin/firestore');
 const { FIREBASE_CONFIG } = require("../utils/config");
 const firebase = initializeApp(FIREBASE_CONFIG);
 const auth = getAuth(firebase);
+
+
 
 authRouter.post('/login', async (req, res, next) => {
 
@@ -34,12 +37,7 @@ authRouter.post('/login', async (req, res, next) => {
         });
 
     } catch (error) {
-
         next(error)
-        // res.status(400).json({
-        //     error: true,
-        //     message: error.message
-        // });
     }
 });
 
@@ -62,7 +60,7 @@ authRouter.post('/register', async (request, response) => {
          * STORE ATTRIBUTE
          */
         const docRef = db.collection('users').doc(user.uid);
-        await docRef.set({ name: name, gender: gender });
+        await docRef.set({ name: name, gender: gender, quota: 2 });
 
         response.status(201).json({
             error: false,

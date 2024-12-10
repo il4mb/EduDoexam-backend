@@ -1,19 +1,28 @@
 const profileRouters = require('express').Router();
 const middleware = require('../utils/middleware');
+const Multer = require('multer');
 const { getFirestore } = require('firebase-admin/firestore');
+const { uploadFile, getFileUrl } = require("../utils/cloudStorage")
 
+const multer = Multer({
+    storage: Multer.memoryStorage(),
+    limits: {
+        fileSize: 1024 * 1024
+    },
+});
 
 // get user 
-profileRouters.get('/', middleware.userExtractor, async (request, response) => {
+profileRouters.get('/', middleware.userExtractor, async (req, res) => {
+
     try {
 
-        const user = request.user
+        const user = req.user
         const db = getFirestore();
         const docRef = db.collection('users').doc(user.uid);
         const docSnapshot = await docRef.get();
 
         if (!docSnapshot.exists) {
-            return response.status(404).json({
+            return res.status(404).json({
                 error: true,
                 message: 'User not found'
             });
@@ -26,17 +35,20 @@ profileRouters.get('/', middleware.userExtractor, async (request, response) => {
             ...{...{name, gender} = docSnapshot.data() }
         }
 
+        const photoUrl = await getFileUrl(`/uploads/profile/${user.uid}.jpg`);
+        userData.photo = photoUrl
+
         console.log(userData)
 
-        response.json({
+        res.json({
             error: false,
             message: "User fetch successful",
             user: userData
-        }); // Send the document data as the response
+        });
 
     } catch (error) {
         console.error('Error fetching user data:', error);
-        response.status(500).json({
+        res.status(500).json({
             error: true,
             message: 'Failed to retrieve user data'
         });
@@ -46,33 +58,31 @@ profileRouters.get('/', middleware.userExtractor, async (request, response) => {
 
 
 // // update user
-profileRouters.put('/', middleware.userExtractor, async (request, response) => {
+profileRouters.put('/', middleware.userExtractor, multer.single('photo'), async (req, res) => {
 
     try {
 
-        const user = request.user;
+        const user = req.user;
         const uid  = user.uid;
-        const { name, gender } = request.body;
-
-        console.log(name, gender)
+        const { name, gender } = req.body;
 
         // Validate inputs
         if (!name || typeof gender === 'undefined') {
-            return response.status(400).json({
+            return res.status(400).json({
                 error: true,
                 message: 'Both name and gender are required fields.',
             });
         }
 
-        if (![0, 1].includes(gender)) {
-            return response.status(400).json({
+        if (![0, 1].includes(parseInt(gender))) {
+            return res.status(400).json({
                 error: true,
                 message: 'Invalid gender. Gender should be 0 (male) or 1 (female).',
             });
         }
 
         if (name.trim().length <= 3) {
-            return response.status(400).json({
+            return res.status(400).json({
                 error: true,
                 message: 'Invalid name. Name should have more than 3 characters.',
             });
@@ -80,7 +90,7 @@ profileRouters.put('/', middleware.userExtractor, async (request, response) => {
 
 
         if (user.uid !== uid) {
-            return response.status(403).json({
+            return res.status(403).json({
                 error: true,
                 message: 'Unauthorized to update this user.',
             });
@@ -92,18 +102,33 @@ profileRouters.put('/', middleware.userExtractor, async (request, response) => {
         // Update user details
         await docRef.update({ name: name, gender: gender });
 
-        // Ensure that response is only sent once
-        if (!response.headersSent) {
-            response.status(200).json({
+        const userData = {
+            id: user.uid,
+            email: user.email,
+            email_verified: user.email_verified,
+            name, 
+            gender
+        }
+
+        if (req.file) {
+            const fileUrl = await uploadFile(req.file, `/uploads/profile/${docRef.id}.jpg`)
+            userData.photo = fileUrl
+        }
+
+        console.log(userData)
+
+        // Ensure that res is only sent once
+        if (!res.headersSent) {
+            res.status(200).json({
                 error: false,
                 message: 'User updated successfully.',
-                userId: user.uid,
+                user: userData,
             });
         }
 
     } catch (error) {
         console.error('Error updating user:', error.message);
-        response.status(500).json({
+        res.status(500).json({
             error: true,
             message: 'Failed to update user. Please try again later.',
         });

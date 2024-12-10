@@ -1,3 +1,5 @@
 node_modules/
 .env
+app.yaml
 firestore-service-key.json
+appengine-service-account.json

@@ -48,9 +48,16 @@ Before starting the app in a production environment, ensure to configure the req
 Sample `.env` file:
 
 ```
-FIREBASE_KEY=123456789
-PORT=5000
-SECRET_KEY=your_secret_key
+PORT=8081
+IP_ADDRESS=your local ip address
+
+FIREBASE_API_KEY=insert firebase apikey here
+FIREBASE_ACCOUNT_SERVICE_JSON=insert account service json file here
+
+# it allow use another bucket in another project
+GCLOUD_PROJECT_SERVICE_JSON=
+GCLOUD_PROJECT_ID=
+GCLOUD_STORAGE_BUCKET=
 ```
 
 ### 6. Available Scripts
