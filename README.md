@@ -51,8 +51,11 @@ Sample `.env` file:
 PORT=8081
 IP_ADDRESS=your local ip address
 
-FIREBASE_API_KEY=insert firebase apikey here
-FIREBASE_ACCOUNT_SERVICE_JSON=insert account service json file here
+FIREBASE_API_KEY=
+FIREBASE_AUTH_DOMAIN=
+FIREBASE_PROJECT_ID=
+FIREBASE_APP_ID=
+FIREBASE_ADMIN_SERVICE_JSON=
 
 # it allow use another bucket in another project
 GCLOUD_PROJECT_SERVICE_JSON=

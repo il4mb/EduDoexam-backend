@@ -79,7 +79,7 @@ const userExtractor = async (request, response, next) => {
       }
 
       request.user = decodedToken;
-      next(); // Proceed to the next middleware or route handler
+      next();
 
     } catch (error) {
       return response.status(401).json({
