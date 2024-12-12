@@ -46,12 +46,34 @@ const getQuestions = async (examId, req) => {
     questions.sort((a, b) => a.order - b.order);
     return questions
 }
+const updateUserData = async (data, uid) => {
+    const db = getFirestore();
+    try {
+        await db.collection('users').doc(uid).update(data); // Await the update operation
+        console.log("User data updated successfully");
+    } catch (error) {
+        console.error("Error updating user data:", error);
+    }
+};
+
 const getUserData = async (uid) => {
+
     const db = getFirestore();
     const userDoc = await db.collection('users').doc(uid).get();
     const userData = userDoc.data();
-    return userData
+    if (userData) {
+        userData.photo = await getFileUrl(`/uploads/profile/${uid}.jpg`);
+    }
+    return {uid, ...userData}
 }
+const formatDateFields = (data, fields) => {
+    fields.forEach(field => {
+        if (data[field]) {
+            data[field] = data[field].toDate();
+        }
+    });
+}
+
 const formatExam = async (docRef, uid) => {
     const currentDate = new Date();
     const data = docRef.data();
@@ -60,26 +82,26 @@ const formatExam = async (docRef, uid) => {
     const isOnGoing = startAt <= currentDate && finishAt >= currentDate;
     let answer = null;  // Initialize as null to handle cases when no answer is found
 
-    if (isOnGoing || finishAt < currentDate) {
-        const db = getFirestore();
-        const answerQuery = await db.collection("answers")
-            .where("examId", "==", docRef.id)
-            .where("userId", "==", uid)
-            .limit(1)
-            .get();
+    const db = getFirestore();
+    const answerQuery = await db.collection("answers")
+        .where("examId", "==", docRef.id)
+        .where("userId", "==", uid)
+        .limit(1)
+        .get();
 
-        if (!answerQuery.empty) {
+    if (!answerQuery.empty) {
 
-            answer = answerQuery.docs.map(doc => doc.data())[0];
-            answer.createdAt = answer.createdAt.toDate();
-            answer.data = answer.data.map(d => {
-                if (d.summary) {
-                    d.summary = JSON.stringify(d.summary);
-                }
-                return d;
-            });
-        }
+        answer = answerQuery.docs.map(doc => doc.data())[0];
+        answer.createdAt = answer.createdAt.toDate();
+        answer.data = answer.data.map(d => {
+            if (d.summary) {
+                d.summary = JSON.stringify(d.summary);
+            }
+            return d;
+        });
     }
+
+    const owner = await getUserData(data.createdBy)
 
     return {
         id: docRef.id,
@@ -89,7 +111,8 @@ const formatExam = async (docRef, uid) => {
         finishAt: finishAt,
         isOwner: uid && uid === data.createdBy,
         isOngoing: isOnGoing,
-        answer: answer
+        answer: answer,
+        owner: owner
     };
 }
 const formatExams = async (docs = [], uid = null) => {
@@ -108,8 +131,6 @@ const formatExams = async (docs = [], uid = null) => {
     });
 };
 
-
-
 router.get("/upcoming", middleware.userExtractor, async (req, res, next) => {
 
     try {
@@ -121,7 +142,6 @@ router.get("/upcoming", middleware.userExtractor, async (req, res, next) => {
         const currentDate = new Date();
         const oneWeekLatter = new Date();
         oneWeekLatter.setDate(currentDate.getDate() + 7);
-
 
         const querySnapshot = await tableRef
             .where("users", "array-contains", uid)
@@ -266,6 +286,14 @@ router.post("/", middleware.userExtractor, async (req, res, next) => {
 
         const db = getFirestore();
         const tableRef = db.collection("exams");
+        const user = await getUserData(req.user.uid)
+
+        if (user.quota <= 0) {
+            return res.status(400).json({
+                error: true,
+                message: "Can't create the exam, your quota is not enough"
+            })
+        }
 
         const { title, subTitle, startAt, finishAt, users } = req.body;
 
@@ -283,7 +311,6 @@ router.post("/", middleware.userExtractor, async (req, res, next) => {
             return res.status(400).json({ error: true, message: "Finish time is required." });
         }
 
-        const user = req.user;
         if (!user || !user.uid) {
             return res.status(401).json({
                 error: true,
@@ -325,6 +352,8 @@ router.post("/", middleware.userExtractor, async (req, res, next) => {
         // Add the entry to Firestore
         const savedEntry = await tableRef.add(newEntry);
 
+        await updateUserData({ quota: user.quota - 1 })
+
         // Respond with success
         res.status(201).json({
             error: false,
@@ -340,7 +369,6 @@ router.post("/", middleware.userExtractor, async (req, res, next) => {
     }
 });
 
-
 router.use("/:examId", middleware.userExtractor, (req, res, next) => {
 
     const examId = req.params.examId
@@ -353,7 +381,6 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
         })
     }
 
-    // Middleware to check if the user is the owner of the exam
     const examOwner = async (req, res, next) => {
         const user = req.user;
 
@@ -394,8 +421,7 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
         } catch (err) {
             return next(err);
         }
-    };
-
+    }
     const examStudent = async (req, res, next) => {
         const user = req.user;
 
@@ -428,8 +454,7 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
         } catch (err) {
             next(err);
         }
-    };
-
+    }
     const getExam = async (id) => {
 
         const db = getFirestore();
@@ -442,8 +467,33 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
         return await formatExam(docSnapshot, req.user.uid)
     }
 
+    const getAccountPackage = async () => {
+        const db = getFirestore();
+        const user = await getUserData(req.user.uid);
+        const packageId = user.package || "trial"
+
+        const packageRef = db.collection("packages").doc(packageId);
+        const packageSnapshot = await packageRef.get();
+
+        if (!packageSnapshot.exists) {
+            return null
+        }
+        const packageData = {
+            label: "No label",
+            maxParticipant: 0,
+            maxQuestion: 0,
+            price: 0,
+            freeQuota: 0,
+            ...packageSnapshot.data()
+        }
+
+        return packageData
+    }
+
     examRoute.post("/join", async () => {
         try {
+
+            const ownerPackage = await getAccountPackage();
             const { uid } = req.user
             const db = getFirestore();
             const docRef = db.collection("exams").doc(examId);
@@ -456,6 +506,19 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
                 });
             }
             const examData = docSnapshot.data()
+            if (examData.finishAt.toDate() <= new Date()) {
+                return res.status(400).json({
+                    error: true,
+                    message: "Exam has finished.",
+                });
+            }
+            const FIFTEEN_MINUTES = 15 * 60 * 1000;
+            if (examData.finishAt.toDate() <= new Date(new Date().getTime() + FIFTEEN_MINUTES)) {
+                return res.status(400).json({
+                    error: true,
+                    message: "Exam has finished or will finish soon.",
+                });
+            }
 
             const blockedUsers = examData.blocked || []
             if (blockedUsers.includes(uid)) {
@@ -473,6 +536,15 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
                 });
             }
 
+            const totalPaticipan = examUsers.length;
+            if (totalPaticipan >= ownerPackage.maxParticipant) {
+                return res.status(400).json({
+                    error: true,
+                    message: "Exam reached maximum participan"
+                })
+            }
+
+
             await docRef.update({ users: [...examUsers, uid] })
 
             res.status(200).json({
@@ -489,8 +561,7 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
         }
     })
 
-
-    // get examBy id 
+    // get exam
     examRoute.get("/", async (req, res) => {
 
         try {
@@ -523,42 +594,247 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
         }
     });
 
-
-
-
-    examRoute.get("/detail", async (req, res) => {
+    // delete exam
+    examRoute.delete("/", examOwner, async (req, res) => {
 
         try {
-            const exam = await getExam(examId)
 
-            if (!exam) {
+            const db = getFirestore();
+            const examRef = db.collection("exams").doc(examId);
+            const questionsQueryRef = db.collection("questions").where("examId", "==", examId);
+            const answersQueryRef = db.collection("answers").where("examId", "==", examId);
+
+            // Check if the exam exists
+            const exam = await examRef.get();
+            if (!exam.exists) {
                 return res.status(404).json({
                     error: true,
-                    message: "Exam doesn't exist.",
+                    message: "Exam not found.",
                 });
             }
 
-            delete exam.blocked
-            delete exam.answers
-            delete exam.users
-            console.log(exam)
+            // Batch to delete the exam and associated data
+            const batch = db.batch();
+
+            // Delete associated questions
+            const questionsSnapshot = await questionsQueryRef.get();
+            questionsSnapshot.forEach((doc) => {
+                batch.delete(doc.ref);
+            });
+
+            // Delete associated answers
+            const answersSnapshot = await answersQueryRef.get();
+            answersSnapshot.forEach((doc) => {
+                batch.delete(doc.ref);
+            });
+
+            // Delete the exam itself
+            batch.delete(examRef);
+
+            // Commit the batch
+            await batch.commit();
 
             res.status(200).json({
                 error: false,
-                message: "Exam fetched successfully.",
-                exam: exam
+                message: "Exam deleted successfully.",
             });
         } catch (error) {
-            console.error("Error fetching exam:", error);
+            console.error("Error deleting exam:", error);
             res.status(500).json({
-                status: "error",
                 error: true,
-                message: "Failed to fetch exam. Please try again later.",
+                message: "Failed to delete exam. Please try again later.",
             });
         }
     });
+    // update exam
+    examRoute.put("/", examOwner, async (req, res, next) => {
 
-    // get examBy id 
+        try {
+
+            const { title, subTitle, startAt, finishAt } = req.body;
+
+            // Input validation
+            if (!title || !subTitle) {
+                return res.status(400).json({
+                    error: true,
+                    message: 'Title and subTitle are required.',
+                });
+            }
+
+            const db = getFirestore();
+            const examRef = db.collection("exams").doc(examId);
+            const examDoc = await examRef.get();
+
+            // Check if the exam exists
+            if (!examDoc.exists) {
+                return res.status(404).json({
+                    error: true,
+                    message: 'Exam not found.',
+                });
+            }
+
+            // Update the exam document
+            await examRef.update({ title, subTitle, startAt: new Date(startAt), finishAt: new Date(finishAt) });
+
+            // Send the updated data back in the response
+            res.status(200).json({
+                error: false,
+                message: "Exam updated successfully."
+            });
+        } catch (error) {
+            // Error handling
+            console.error("Error updating exam:", error);
+            next(error);
+        }
+    });
+    // update with action
+    examRoute.put("/:action", examOwner, async (req, res, next) => {
+
+        try {
+
+            const { action } = req.params;
+            const db = getFirestore();
+            const examRef = db.collection("exams").doc(examId)
+            const examDoc = await examRef.get()
+
+            // Check if the exam exists
+            if (!examDoc.exists) {
+                return res.status(404).json({
+                    error: true,
+                    message: 'Exam not found.',
+                });
+            }
+
+            // Get the existing data for validation
+            const examData = examDoc.data();
+            const currentDate = new Date();
+
+            // Validation based on action
+            if (action === "start") {
+                if (examData.startAt && examData.startAt.toDate() <= currentDate) {
+                    return res.status(400).json({
+                        error: true,
+                        message: "Exam has already started or start date is in the past.",
+                    });
+                }
+            } else if (action === "finish") {
+                if (examData.finishAt && examData.finishAt.toDate() <= currentDate) {
+                    return res.status(400).json({
+                        error: true,
+                        message: "Exam has already finished or finish date is in the past.",
+                    });
+                }
+            } else {
+                return res.status(400).json({
+                    error: true,
+                    message: "Invalid action. Allowed actions are 'start' or 'finish'.",
+                });
+            }
+
+            // Update the exam based on action
+            let updateData;
+            if (action === "start") {
+                updateData = { startAt: currentDate };
+            } else if (action === "finish") {
+                updateData = { finishAt: currentDate };
+            }
+
+            // Perform the update
+            await examRef.update(updateData);
+
+            // Send the updated data back in the response
+            res.status(200).json({
+                error: false,
+                message: `Exam ${action} successfully.`
+            });
+        } catch (error) {
+            // Error handling
+            console.error("Error updating exam:", error);
+            next(error);
+        }
+    });
+
+    examRoute.get("/details", examOwner, async (req, res) => {
+
+        try {
+
+            const admin = require('firebase-admin');
+            const db = getFirestore();
+            const examRef = db.collection("exams").doc(examId);
+            const examDoc = await examRef.get();
+
+            if (!examDoc.exists) {
+                return res.status(404).json({
+                    error: true,
+                    message: 'Exam not found'
+                });
+            }
+
+            const examData = examDoc.data();
+            const students = examData["users"] || [];
+            const userPromises = students.map(async (userId) => {
+                try {
+                    const userRecord = await admin.auth().getUser(userId);
+                    const userDoc = await db.collection('users').doc(userId).get();
+                    const userData = userDoc.data();
+                    if (userRecord.uid == examData.createdBy) return null;
+                    const photoUrl = await getFileUrl(`/uploads/profile/${userRecord.uid}.jpg`);
+
+                    return {
+                        id: userRecord.uid,
+                        email: userRecord.email,
+                        name: userData ? userData.name : null,
+                        gender: userData ? userData.gender : null,
+                        photo: photoUrl
+                    };
+                } catch (error) {
+                    console.error(`Error fetching user data for ${userId}:`, error);
+                    return null;
+                }
+            });
+            const userDetails = await Promise.all(userPromises);
+            const validUsers = userDetails.filter(user => user !== null);
+
+            const questions = await getQuestions(examId, req)
+
+            const answerQuery = await db.collection("answers").where("examId", "==", examId).get();
+            var answers = [];
+            if (!answerQuery.empty) {
+
+                answers = answerQuery.docs.map(doc => doc.data()).map(answer => {
+                    answer.createdAt = answer.createdAt.toDate();
+                    answer.data = answer.data.map(d => {
+                        if (d.summary) {
+                            d.summary = JSON.stringify(d.summary);
+                        }
+                        return d;
+                    });
+                    return answer;
+                })
+            }
+
+            examData.createdAt = examData.createdAt.toDate();
+            examData.startAt = examData.startAt.toDate();
+            examData.finishAt = examData.finishAt.toDate();
+
+            const responseData = {
+                error: false,
+                message: "success",
+                exam: examData,
+                users: validUsers,
+                answers: answers,
+                questions: questions
+            }
+
+            console.log(responseData)
+
+            res.json(responseData);
+
+        } catch (error) {
+            next(error);
+        }
+    })
+
     examRoute.get("/student/result", examStudent, async (req, res) => {
 
         try {
@@ -604,7 +880,6 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
         }
     });
 
-    // get examBy id 
     examRoute.get("/teacher/result", examOwner, async (req, res) => {
 
         try {
@@ -683,55 +958,11 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
         }
     });
 
-    // update exam
-    examRoute.put("/", examOwner, async (req, res, next) => {
-
-        try {
-
-            const { title, subTitle, startAt, finishAt } = req.body;
-
-            console.log(req.body)
-
-            // Input validation
-            if (!title || !subTitle) {
-                return res.status(400).json({
-                    error: true,
-                    message: 'Title and subTitle are required.',
-                });
-            }
-
-            const db = getFirestore();
-            const examRef = db.collection("exams").doc(examId);
-            const examDoc = await examRef.get();
-
-            // Check if the exam exists
-            if (!examDoc.exists) {
-                return res.status(404).json({
-                    error: true,
-                    message: 'Exam not found.',
-                });
-            }
-
-            // Update the exam document
-            await examRef.update({ title, subTitle, startAt: new Date(startAt), finishAt: new Date(finishAt) });
-
-            // Send the updated data back in the response
-            res.status(200).json({
-                error: false,
-                message: "Exam updated successfully."
-            });
-        } catch (error) {
-            // Error handling
-            console.error("Error updating exam:", error);
-            next(error);
-        }
-    });
-
-    // get users
-    examRoute.get("/students", examOwner, async (req, res, next) => {
+    // get participants
+    examRoute.get("/participants", examOwner, async (req, res, next) => {
         try {
             const admin = require('firebase-admin');
-            const { block } = req.query
+            const { block } = req.query;
             const db = getFirestore();
             const examRef = db.collection("exams").doc(examId);
             const examDoc = await examRef.get();
@@ -744,26 +975,27 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
             }
 
             const blockBool = block === 'true';
-
             const examData = examDoc.data();
             const students = examData[blockBool ? "blocked" : "users"] || [];
 
-            const userPromises = students.map(async (userId) => {
-
+            const participantPromises = students.map(async (userId) => {
                 try {
-
                     const userRecord = await admin.auth().getUser(userId);
                     const userDoc = await db.collection('users').doc(userId).get();
-                    const userData = userDoc.data();
-                    if (userRecord.uid == examData.createdBy) return null;
+                    const userData = userDoc.exists ? userDoc.data() : {};
+
+                    if (userRecord.uid === examData.createdBy) return null;
+
                     const photoUrl = await getFileUrl(`/uploads/profile/${userRecord.uid}.jpg`);
 
                     return {
-                        id: userRecord.uid,
-                        email: userRecord.email,
-                        name: userData ? userData.name : null,
-                        gender: userData ? userData.gender : null,
-                        photo: photoUrl
+                        user: {
+                            id: userRecord.uid,
+                            email: userRecord.email,
+                            name: userData.name || null,
+                            gender: userData.gender || null,
+                            photo: photoUrl
+                        }
                     };
                 } catch (error) {
                     console.error(`Error fetching user data for ${userId}:`, error);
@@ -771,26 +1003,45 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
                 }
             });
 
-            const userDetails = await Promise.all(userPromises);
-            const validUsers = userDetails.filter(user => user !== null);
+            const answersSnapshot = await db.collection("answers").where("examId", "==", examId).get();
+            const answers = answersSnapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    ...data,
+                    createdAt: data.createdAt.toDate(),
+                    data: data.data.map(d => ({
+                        ...d,
+                        summary: d.summary ? JSON.stringify(d.summary) : undefined
+                    }))
+                };
+            });
+
+            const participantDetails = await Promise.all(participantPromises);
+            const validParticipants = participantDetails
+                .filter(user => user !== null)
+                .map(participant => {
+                    const answer = answers.find(ans => ans.userId === participant.user.id);
+                    return { ...participant, answer };
+                });
 
             res.json({
                 error: false,
-                message: "success",
-                users: validUsers
+                message: "Success",
+                participants: validParticipants
             });
-
         } catch (error) {
             next(error);
         }
     });
 
-    // Add user/student to exam
-    examRoute.post("/students", examOwner, async (req, res, next) => {
+    // add participant
+    examRoute.post("/participants", examOwner, async (req, res, next) => {
 
         try {
 
             const { email } = req.body;
+            const db = getFirestore();
+            const ownerPackage = await getAccountPackage();
 
             if (!email) {
                 return res.status(400).json({
@@ -821,7 +1072,6 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
                 throw error;
             }
 
-            const db = getFirestore();
             const examRef = db.collection("exams").doc(examId);
 
             const examDoc = await examRef.get();
@@ -835,6 +1085,14 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
             const examData = examDoc.data();
             const users = examData.users || [];
 
+            const totalPaticipan = users.length;
+            if (totalPaticipan >= ownerPackage.maxParticipant) {
+                return res.status(400).json({
+                    error: true,
+                    message: "Exam reached maximum participan"
+                })
+            }
+
             if (users.includes(userRecord.uid)) {
                 return res.status(400).json({
                     error: true,
@@ -847,7 +1105,7 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
 
             return res.status(200).json({
                 error: false,
-                message: 'User successfully added to the exam.',
+                message: 'User successfully added to the exam.'
             });
 
         } catch (error) {
@@ -862,9 +1120,10 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
         }
     });
 
-    // Remove user/student from an exam
-    examRoute.delete("/students/:userId", examOwner, async (req, res, next) => {
+    examRoute.delete("/participants/:userId", examOwner, async (req, res, next) => {
+
         try {
+
             const { userId } = req.params; // Extract examId from route params
 
             // Validate request payload
@@ -906,7 +1165,7 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
             // Respond with success
             return res.status(200).json({
                 error: false,
-                message: 'User successfully removed from the exam.',
+                message: 'User successfully removed from the exam.'
             });
 
         } catch (error) {
@@ -923,9 +1182,10 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
         }
     });
 
-    // update user in exam
-    examRoute.put("/students/:userId", examOwner, async (req, res, next) => {
+    examRoute.put("/participants/:userId", examOwner, async (req, res, next) => {
+
         try {
+
             const { block } = req.query; // Query parameter to block/unblock
             const { userId } = req.params; // Extract examId and userId from the route
 
@@ -972,6 +1232,7 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
                     users: updatedUsers,
                     blocked: updatedBlocked,
                 });
+
             } else {
                 // Unblock the user: move from blocked to users
                 if (!blocked.includes(userId)) {
@@ -1012,9 +1273,10 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
 
             // If no questions are found
             if (querySnapshot.empty) {
-                return res.status(404).json({
-                    error: true,
-                    message: "No questions found for this exam."
+                return res.status(200).json({
+                    error: false,
+                    message: "success",
+                    questions: []
                 });
             }
 
@@ -1043,11 +1305,11 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
         }
     });
 
-    // Add exam question
     examRoute.post("/questions", examOwner, multer.single('image'), async (req, res, next) => {
 
         try {
 
+            const ownerPackage = await getAccountPackage();
             var { correctOption, description, duration, options } = req.body;
 
             // Validate the request body
@@ -1074,6 +1336,13 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
             const aggregateSnapshot = await questionsRef.where("examId", "==", examId).get();
             const order = aggregateSnapshot.size + 1;
 
+            if (aggregateSnapshot.size >= ownerPackage.maxQuestion) {
+                return res.status(400).json({
+                    error: true,
+                    message: "Exam reached maximum question"
+                })
+            }
+
             // Add a new question document
             const newQuestion = {
                 correctOption: correctOption,
@@ -1094,7 +1363,6 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
 
             if (req.file) {
                 const fileUrl = await uploadFile(req.file, `/uploads/questions/${questionDoc.id}.jpg`)
-                console.log(fileUrl)
             }
 
 
@@ -1144,7 +1412,6 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
         }
     });
 
-    // Update exam question
     examRoute.put("/questions/:questionId", examOwner, multer.single("image"), async (req, res, next) => {
 
         try {
@@ -1207,7 +1474,6 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
         }
     });
 
-    // Delete exam question
     examRoute.delete("/questions/:questionId", examOwner, async (req, res, next) => {
         try {
             const { questionId } = req.params;
@@ -1264,23 +1530,114 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
         }
     });
 
-
-    // add or update answer
-    examRoute.post("/answers", examStudent, async (req, res, next) => {
-
+    // get exam answer
+    examRoute.get("/answers", examStudent, async (req, res, next) => {
         try {
+            const { user } = req;
 
+            const db = getFirestore();
+            // Fetch exam details
+            const examRef = db.collection("exams").doc(examId);
+            const examDoc = await examRef.get();
+
+            if (!examDoc.exists) {
+                return res.status(404).json({
+                    error: true,
+                    message: "Exam not found.",
+                });
+            }
+
+            const examData = examDoc.data();
+            delete examData.users
+            delete examData.blocked
+            examData.finishAt = examData.finishAt.toDate();
+            examData.startAt = examData.startAt.toDate();
+            examData.createdAt = examData.createdAt.toDate();
+
+            const owner = await getUserData(examData.createdBy)
+            examData.owner = owner
+
+            // Fetch associated questions
+            const questionsRef = db.collection("questions");
+            const querySnapshot = await questionsRef.where("examId", "==", examId).get();
+
+            const questionsPromises = querySnapshot.docs.map(async (doc) => {
+                const imageUrl = await getFileUrl(`/uploads/questions/${doc.id}.jpg`);
+                return {
+                    id: doc.id,
+                    image: imageUrl,
+                    ...doc.data(),
+                };
+            });
+
+            const questions = await Promise.all(questionsPromises);
+            questions.sort((a, b) => a.order - b.order); // Sort by 'order'
+
+            const answerQuery = await db.collection("answers")
+                .where("examId", "==", examId)
+                .where("userId", "==", user.uid)
+                .limit(1).get();
+
+            const resultData = {
+                answer: null,
+                exam: examData,
+                questions,
+            }
+            if (!answerQuery.empty) {
+
+                const answer = answerQuery.docs.map(doc => doc.data())[0];
+                resultData.answer = answer
+                resultData.answer.createdAt = answer.createdAt.toDate();
+                resultData.answer.data = answer.data.map(d => {
+                    if (d.summary) {
+                        d.summary = JSON.stringify(d.summary);
+                    }
+                    return d;
+                });
+            }
+
+            // Return response
+            res.json({
+                error: false,
+                message: "Success",
+                ...resultData
+            });
+        } catch (error) {
+            console.error("Error fetching participant data:", error);
+            next(error);
+        }
+    });
+
+    examRoute.post("/answers", examStudent, async (req, res, next) => {
+        try {
             const user = req.user;
             const { answers } = req.body;
 
             if (!Array.isArray(answers)) {
                 return res.status(400).json({
                     error: true,
-                    message: "Summary should be an array.",
+                    message: "Answers should be an array.",
                 });
             }
 
             const db = getFirestore();
+            const examRef = db.collection("exams").doc(examId);
+            const examDoc = await examRef.get();
+
+            if (!examDoc.exists) {
+                return res.status(404).json({
+                    error: true,
+                    message: "Exam not found.",
+                });
+            }
+
+            const examData = examDoc.data();
+            if (examData.finishAt.toDate() < new Date()) {
+                return res.status(400).json({
+                    error: true,
+                    message: "Exam has already finished.",
+                });
+            }
 
             const answerQuery = await db.collection("answers")
                 .where("examId", "==", examId)
@@ -1288,17 +1645,24 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
                 .limit(1)
                 .get();
 
-            let answersData = null;
-            const formattedAnswers = answers.map(answer => {
-                if (typeof answer.summary == "string") {
-                    answer.summary = JSON.parse(answer.summary)
-                }
-                return answer
-            })
+            let formattedAnswers;
+            try {
+                formattedAnswers = answers.map(answer => {
+                    if (typeof answer.summary === "string") {
+                        answer.summary = JSON.parse(answer.summary);
+                    }
+                    return answer;
+                });
+            } catch (err) {
+                return res.status(400).json({
+                    error: true,
+                    message: "Invalid JSON format in answers.",
+                });
+            }
 
             if (answerQuery.empty) {
-
-                answersData = {
+                // Add new answers
+                const answersData = {
                     examId,
                     userId: user.uid,
                     createdAt: new Date(),
@@ -1306,35 +1670,32 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
                 };
 
                 await db.collection("answers").add(answersData);
-
             } else {
+                // Update existing answers
+                await db.runTransaction(async (transaction) => {
+                    const answerDoc = answerQuery.docs[0];
+                    const existingData = answerDoc.data().data || [];
 
-                const answerDoc = answerQuery.docs[0];
-                const existingData = answerDoc.data().data || [];
+                    const uniqueData = [...existingData, ...formattedAnswers].reduce((acc, current) => {
+                        const index = acc.findIndex(item => item.questionId === current.questionId);
+                        if (index === -1) {
+                            acc.push(current);
+                        } else {
+                            acc[index] = current;
+                        }
+                        return acc;
+                    }, []);
 
-                const uniqueData = [...existingData, ...formattedAnswers].reduce((acc, current) => {
-                    const index = acc.findIndex(item => item.questionId === current.questionId);
-
-                    if (index === -1) {
-                        acc.push(current);
-                    } else {
-                        acc[index] = current;
-                    }
-
-                    return acc;
-                }, []);
-
-
-                await answerDoc.ref.update({ data: uniqueData });
-
+                    transaction.update(answerDoc.ref, { data: uniqueData });
+                });
             }
 
             res.status(200).json({
                 error: false,
-                message: "Answer submitted successfully.",
+                message: "Answers submitted successfully.",
             });
         } catch (error) {
-            console.error("Error adding/updating answer:", error);
+            console.error("Error adding/updating answers:", error);
             next(error);
         }
     });

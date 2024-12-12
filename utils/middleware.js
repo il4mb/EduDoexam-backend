@@ -72,6 +72,7 @@ const userExtractor = async (request, response, next) => {
       const decodedToken = await admin.auth().verifyIdToken(token);
 
       if (!decodedToken.uid) {
+        console.error("Invalid token")
         return response.status(401).json({
           error: true,
           message: 'Token invalid'
@@ -82,12 +83,14 @@ const userExtractor = async (request, response, next) => {
       next();
 
     } catch (error) {
+      console.error("Token verification failed:", error);
       return response.status(401).json({
         error: true,
         message: `Token verification failed`
       });
     }
   } else {
+    console.error("Token missing")
     return response.status(401).json({
       error: true,
       message: 'Token missing'

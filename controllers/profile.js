@@ -32,13 +32,27 @@ profileRouters.get('/', middleware.userExtractor, async (req, res) => {
             id: user.uid,
             email: user.email,
             email_verified: user.email_verified,
-            ...{...{name, gender} = docSnapshot.data() }
+            ...{ ...{ name, gender } = docSnapshot.data() }
         }
 
         const photoUrl = await getFileUrl(`/uploads/profile/${user.uid}.jpg`);
         userData.photo = photoUrl
+        const packageId = user.package || "trial"
+        const packageRef = db.collection("packages").doc(packageId);
+        const packageSnapshot = await packageRef.get();
 
-        console.log(userData)
+   
+        const packageData = {
+            id: packageId,
+            label: "No label",
+            maxParticipant: 0,
+            maxQuestion: 0,
+            price: 0,
+            freeQuota: 0,
+            ...packageSnapshot.data()
+        }
+
+        userData.currentPackage = packageData
 
         res.json({
             error: false,
@@ -47,23 +61,24 @@ profileRouters.get('/', middleware.userExtractor, async (req, res) => {
         });
 
     } catch (error) {
+        next(error);
         console.error('Error fetching user data:', error);
-        res.status(500).json({
-            error: true,
-            message: 'Failed to retrieve user data'
-        });
+        // res.status(500).json({
+        //     error: true,
+        //     message: 'Failed to retrieve user data'
+        // });
     }
 });
 
 
 
-// // update user
+// update user
 profileRouters.put('/', middleware.userExtractor, multer.single('photo'), async (req, res) => {
 
     try {
 
         const user = req.user;
-        const uid  = user.uid;
+        const uid = user.uid;
         const { name, gender } = req.body;
 
         // Validate inputs
@@ -106,16 +121,16 @@ profileRouters.put('/', middleware.userExtractor, multer.single('photo'), async 
             id: user.uid,
             email: user.email,
             email_verified: user.email_verified,
-            name, 
+            name,
             gender
         }
 
         if (req.file) {
             const fileUrl = await uploadFile(req.file, `/uploads/profile/${docRef.id}.jpg`)
             userData.photo = fileUrl
-        }
-
-        console.log(userData)
+        } else (
+            userData.photo = await getFileUrl(`/uploads/profile/${docRef.id}.jpg`)
+        )
 
         // Ensure that res is only sent once
         if (!res.headersSent) {

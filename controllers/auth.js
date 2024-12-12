@@ -56,7 +56,7 @@ authRouter.post('/register', async (request, response) => {
          * STORE ATTRIBUTE
          */
         const docRef = db.collection('users').doc(user.uid);
-        await docRef.set({ name: name, gender: gender, quota: 2 });
+        await docRef.set({ name: name, gender: gender, quota: 2, package: "trial" });
 
         response.status(201).json({
             error: false,
