@@ -1,7 +1,7 @@
 const profileRouters = require('express').Router();
 const middleware = require('../utils/middleware');
 const Multer = require('multer');
-const { getFirestore } = require('firebase-admin/firestore');
+const { getFirestore, Timestamp } = require('firebase-admin/firestore');
 const { uploadFile, getFileUrl } = require("../utils/cloudStorage")
 
 const multer = Multer({
@@ -12,7 +12,7 @@ const multer = Multer({
 });
 
 // get user 
-profileRouters.get('/', middleware.userExtractor, async (req, res) => {
+profileRouters.get('/', middleware.userExtractor, async (req, res, next) => {
 
     try {
 
@@ -40,9 +40,7 @@ profileRouters.get('/', middleware.userExtractor, async (req, res) => {
         const packageId = user.package || "trial"
         const packageRef = db.collection("packages").doc(packageId);
         const packageSnapshot = await packageRef.get();
-
-   
-        const packageData = {
+        const myPackage = {
             id: packageId,
             label: "No label",
             maxParticipant: 0,
@@ -52,21 +50,41 @@ profileRouters.get('/', middleware.userExtractor, async (req, res) => {
             ...packageSnapshot.data()
         }
 
-        userData.currentPackage = packageData
+        const examsRef = db.collection("exams");
+        const querySnapshot = await examsRef
+            .where("users", "array-contains", user.uid)
+            .orderBy("createdAt", "desc")
+            .limit(5)
+            .get();
+        const myExams = querySnapshot.docs.map(doc => {
+            const exam = {
+                id: doc.id,
+                ...doc.data()
+            };
+            const filteredExam = Object.fromEntries(
+                Object.entries(exam).map(([key, value]) => [
+                    key,
+                    value instanceof Timestamp ? value.toDate() : value
+                ]).filter(([key]) =>
+                    ["id", "title", "subTitle", "startAt", "finishAt", "createdAt", "createdBy"].includes(key)
+                )
+            );
+
+            return filteredExam;
+        });
 
         res.json({
             error: false,
             message: "User fetch successful",
-            user: userData
+            data: {
+                user: userData,
+                myPackage,
+                myExams
+            }
         });
 
     } catch (error) {
         next(error);
-        console.error('Error fetching user data:', error);
-        // res.status(500).json({
-        //     error: true,
-        //     message: 'Failed to retrieve user data'
-        // });
     }
 });
 

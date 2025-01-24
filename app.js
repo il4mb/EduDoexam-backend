@@ -10,9 +10,15 @@ const app = express();
 const middleware = require('./utils/middleware');
 
 app.use(cors())
+
+app.get("/privacy", (req, res) => {
+    res.status(200).contentType(".html").sendFile(__dirname + "/public/privacy.html")
+})
+
 app.use(middleware.requestLogger)
 app.use(express.json());
 app.use(middleware.tokenExtractor);
+
 
 app.use('/api/auth', authRouters);
 app.use('/api/product', productRouters);

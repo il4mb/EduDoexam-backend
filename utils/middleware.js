@@ -1,3 +1,4 @@
+const { getFirestore } = require('firebase-admin/firestore')
 const logger = require('./logger')
 
 const requestLogger = (request, response, next) => {
@@ -62,6 +63,10 @@ const tokenExtractor = (request, response, next) => {
   next();
 };
 
+/**
+ * userExtractor
+ * - user is assign to request
+ */
 const userExtractor = async (request, response, next) => {
   const token = request.token;
 
@@ -98,48 +103,90 @@ const userExtractor = async (request, response, next) => {
   }
 };
 
-const examOwner = async (req, res, next) => {
-  const user = req.user;
 
-  if (!user) {
-    return res.status(401).json({
-      error: true,
-      message: 'User is missing'
-    });
-  }
+/**
+ * ExamAdminParticipant
+ * - participant is assign to request
+ */
+const examAdminParticipant = async (req, res, next) => {
 
   try {
-    const examId = req.params.examId; // Get examId from the URL parameter
+
+    const user = req.user;
+
+    if (!user) {
+      return res.status(401).json({
+        error: true,
+        message: 'User is missing'
+      });
+    }
+    const examId = req.params.examId
+    if (!examId) {
+      return res.status(400).json({
+        error: true,
+        message: "Invalid path, exam id not found in path"
+      })
+    }
     const db = getFirestore();
-    const examRef = db.collection("exams").doc(examId); // Reference to the exam document
-
-    // Fetch the exam document
-    const examDoc = await examRef.get();
-
-    // If the exam doesn't exist
-    if (!examDoc.exists) {
+    const participantsRef = db.collection("exams").doc(examId).collection("participants");
+    const participantDoc = await participantsRef.doc(user.uid).get();
+    if (!participantDoc.exists) {
       return res.status(404).json({
         error: true,
-        message: 'Exam not found'
+        message: 'Youre not a participant of this exam'
       });
     }
-
-    // Check if the current user is the owner of the exam
-    const examData = examDoc.data();
-    if (examData.createdBy !== user.uid) { // Assuming `user.uid` is the ID of the logged-in user
+    const participant = participantDoc.data();
+    if (!["admin", "owner"].includes(participant.role)) {
       return res.status(403).json({
         error: true,
-        message: 'You are not the owner of this exam'
+        message: 'You are not an admin of this exam'
       });
     }
 
-    // If the user is the owner, move to the next middleware or route handler
+    req.participant = participant;
+
     next();
 
   } catch (err) {
     return next(err);
   }
-};
+
+}
+
+const examStudent = async (req, res, next) => {
+  const user = req.user;
+
+  if (!user) {
+    return res.status(401).json({
+      error: true,
+      message: "User is missing"
+    });
+  }
+
+  try {
+    const db = getFirestore();
+    const examRef = db.collection("exams");
+
+    // Check if the user is part of any exam
+    const querySnapshot = await examRef
+      .where("users", "array-contains", user.uid)
+      .limit(1) // Optimize by limiting results to 1
+      .get();
+
+    // If no documents are found
+    if (querySnapshot.empty) {
+      return res.status(404).json({
+        error: true,
+        message: "Exam not found or you are no longer a participant"
+      });
+    }
+
+    next(); // Proceed to the next middleware or route handler
+  } catch (err) {
+    next(err);
+  }
+}
 
 module.exports = {
   requestLogger,
@@ -147,5 +194,6 @@ module.exports = {
   errorHandler,
   userExtractor,
   tokenExtractor,
-  examOwner
+  examAdminParticipant,
+  examStudent
 }

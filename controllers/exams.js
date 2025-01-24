@@ -2,9 +2,17 @@ const fs = require('fs');
 const path = require('path');
 const express = require("express");
 const Multer = require('multer');
-const middleware = require('../utils/middleware');
-const { getFirestore, Filter } = require('firebase-admin/firestore');
+const { userExtractor } = require('../utils/middleware');
+const { getFirestore, Timestamp } = require('firebase-admin/firestore');
+const { runTransaction } = require('firebase/firestore');
 const { uploadFile, getFileUrl } = require("../utils/cloudStorage")
+const { getUserById } = require('../utils/helpers/user');
+
+const docRoute = require("./exams.doc");
+const participantRoute = require("./exams.doc.participants");
+const questionsRoute = require("./exams.doc.questions");
+
+const isEmpty = (str) => (!str?.length);
 // Instantiate a express route
 const router = express.Router();
 
@@ -16,6 +24,121 @@ const multer = Multer({
 });
 
 
+
+/**
+ * Get List Exams
+ * Queries:
+ * - order = desc or asc, default desc
+ * - limit = number, default 10 max 50
+ * - filter = ongoing or finished or upcoming or null, default null
+ * - cursor = string, document ID for pagination, default null
+ */
+router.get("/", userExtractor, async (req, res, next) => {
+
+    try {
+
+        const maxLength = 50;
+        const { order = "desc", limit = 10, filter = null, cursor = null } = req.query;
+
+        const db = getFirestore();
+        const uid = req.user.uid;
+        const tableRef = db.collection("exams");
+
+        const currentDate = new Date();
+        const oneWeekLater = new Date();
+        oneWeekLater.setDate(currentDate.getDate() + 7);
+
+        // Build the base query
+        let query = tableRef
+            .where("users", "array-contains", uid)
+            .orderBy("startAt", order);
+
+        // Add filter conditions
+        if (filter === "ongoing") {
+            query = query.where("startAt", "<=", currentDate).where("finishAt", ">=", currentDate);
+        } else if (filter === "finished") {
+            query = query.where("finishAt", "<", currentDate);
+        } else if (filter === "upcoming") {
+            query = query.where("startAt", ">", currentDate);
+        }
+
+        // Add pagination using cursor
+        if (cursor) {
+            const cursorDoc = await tableRef.doc(cursor).get();
+            if (cursorDoc.exists) {
+                query = query.startAfter(cursorDoc);
+            } else {
+                return res.status(400).json({ error: true, message: "Invalid cursor" });
+            }
+        }
+
+        // Set the limit
+        query = query.limit(Math.min(parseInt(limit), maxLength));
+
+        // Execute the query
+        const querySnapshot = await query.get();
+
+        // Process each exam
+        const examsProcess = querySnapshot.docs.map(async (doc) => {
+            const exam = {
+                id: doc.id,
+                ...doc.data(),
+            };
+
+            // Filter exam properties
+            const filteredExam = Object.fromEntries(
+                Object.entries(exam).map(([key, value]) => [
+                    key,
+                    value instanceof Timestamp ? value.toDate() : value,
+                ]).filter(([key]) =>
+                    ["id", "title", "subTitle", "startAt", "finishAt", "createdAt", "createdBy", "users"].includes(key)
+                )
+            );
+
+            // Resolve createdBy user details
+            if (filteredExam.createdBy) {
+                filteredExam.createdBy = await getUserById(filteredExam.createdBy);
+            }
+
+            // Resolve users details
+            if (Array.isArray(filteredExam.users)) {
+                filteredExam.users = {
+                    total: filteredExam.users.length,
+                    rows: await Promise.all(
+                        filteredExam.users.filter((uid) => uid !== filteredExam.createdBy.id)  // Exclude createdBy
+                            .slice(0, 5).map((uid) => getUserById(uid))
+                    )
+                }
+            }
+
+            return filteredExam;
+        });
+
+        // Await all promises
+        const exams = await Promise.all(examsProcess);
+
+        // Get the last document for the next cursor
+        const lastDoc = querySnapshot.docs[querySnapshot.docs.length - 1];
+        const nextCursor = lastDoc ? lastDoc.id : null;
+
+        res.json({
+            error: false,
+            message: "Success fetch exams",
+            data: {
+                exams,
+                nextCursor,
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.use("/doc", docRoute);
+router.use("/doc/participants", participantRoute);
+router.use("/doc/questions", questionsRoute);
+
+/*
 const getQuestionImage = (questionId, req) => {
     const imagePath = path.join(__dirname, '/../uploads', `${questionId}.jpg`);
     const fileExists = fs.existsSync(imagePath);
@@ -577,7 +700,6 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
             delete exam.blocked
             delete exam.answers
             delete exam.users
-            console.log(exam)
 
             res.status(200).json({
                 error: false,
@@ -825,8 +947,6 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
                 answers: answers,
                 questions: questions
             }
-
-            console.log(responseData)
 
             res.json(responseData);
 
@@ -1703,6 +1823,6 @@ router.use("/:examId", middleware.userExtractor, (req, res, next) => {
     examRoute(req, res, next);
 
 })
-
+*/
 
 module.exports = router
