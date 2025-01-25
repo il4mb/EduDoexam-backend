@@ -1,26 +1,32 @@
 const authRouter = require('express').Router();
 const { getClient } = require("../utils/firebase")
-const { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword } = require("firebase/auth");
+const { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, setPersistence, browserSessionPersistence } = require("firebase/auth");
 const { getFirestore } = require('firebase-admin/firestore');
 
 const firebase = getClient()
 const auth = getAuth(firebase);
 
-authRouter.post('/login', async (req, res, next) => {
+const validateLoginInput = (req, res, next) => {
+    const { email, password } = req.body;
 
+    if (!email || !password) {
+        return res.status(400).json({ error: true, message: "Please enter email and password" });
+    }
+    if (!/[a-z0-9.-_]+\@\w{3,}\.[a-z0-9.]{2,}/im.test(email)) {
+        return res.status(400).json({ error: true, message: "Please provide a valid email address" });
+    }
+    if (password.length < 8) {
+        return res.status(400).json({ error: true, message: "Invalid password, please enter a minimum of 8 characters" });
+    }
+
+    next();
+};
+
+
+authRouter.post('/login', validateLoginInput, async (req, res, next) => {
     const { email, password } = req.body;
 
     try {
-
-        if (!email || !password) {
-            throw new Error("Please enter email and password")
-        }
-        if (!/[a-z0-9.-_]+\@\w{3,}\.[a-z0-9.]{2,}/im.test(email)) {
-            throw new Error("Please valid email address")
-        }
-        if (password.length < 8) {
-            throw new Error("Invalid password, please enter minimum 8 character")
-        }
 
         const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password.trim());
         const user = userCredential.user;
@@ -31,9 +37,12 @@ authRouter.post('/login', async (req, res, next) => {
             message: "Login successful",
             token: token
         });
-
     } catch (error) {
-        next(error)
+        console.error("Login error:", error); // Log error for debugging
+        res.status(401).json({
+            error: true,
+            message: "Invalid email or password"
+        });
     }
 });
 

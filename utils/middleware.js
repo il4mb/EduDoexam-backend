@@ -1,4 +1,5 @@
 const { getFirestore } = require('firebase-admin/firestore')
+const { getAuth } = require('firebase-admin/auth')
 const logger = require('./logger')
 
 const requestLogger = (request, response, next) => {
@@ -69,15 +70,14 @@ const tokenExtractor = (request, response, next) => {
  */
 const userExtractor = async (request, response, next) => {
   const token = request.token;
+  const auth = getAuth();
 
   if (token) {
     try {
-      const { getAdmin } = require("../utils/firebase")
-      const admin = getAdmin()
-      const decodedToken = await admin.auth().verifyIdToken(token);
 
+      // Verify the token
+      const decodedToken = await auth.verifyIdToken(token);
       if (!decodedToken.uid) {
-        console.error("Invalid token")
         return response.status(401).json({
           error: true,
           message: 'Token invalid'
@@ -154,7 +154,7 @@ const examAdminParticipant = async (req, res, next) => {
 
 }
 
-const examStudent = async (req, res, next) => {
+const examParticipant = async (req, res, next) => {
   const user = req.user;
 
   if (!user) {
@@ -195,5 +195,5 @@ module.exports = {
   userExtractor,
   tokenExtractor,
   examAdminParticipant,
-  examStudent
+  examParticipant
 }

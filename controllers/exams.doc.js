@@ -5,6 +5,9 @@ const { getUserById } = require('../utils/helpers/user');
 const { getFirestore, Timestamp } = require('firebase-admin/firestore');
 const { convertFirestoreData } = require('../utils/converter');
 
+const participantRoute = require("./exams.doc.participants");
+const questionsRoute = require("./exams.doc.questions");
+const answersRoute = require("./exams.doc.answers");
 
 /**
  * Get Exam
@@ -271,5 +274,10 @@ router.post("/join/:examId", userExtractor, async (req, res, next) => {
         next(error);
     }
 })
+
+
+router.use("/answers", answersRoute);
+router.use("/participants", participantRoute);
+router.use("/questions", questionsRoute);
 
 module.exports = router;

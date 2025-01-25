@@ -88,8 +88,6 @@ profileRouters.get('/', middleware.userExtractor, async (req, res, next) => {
     }
 });
 
-
-
 // update user
 profileRouters.put('/', middleware.userExtractor, multer.single('photo'), async (req, res) => {
 

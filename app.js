@@ -6,6 +6,8 @@ const authRouters = require("./controllers/auth")
 const examsRouters = require("./controllers/exams")
 const profileRouters = require("./controllers/profile")
 const productRouters = require("./controllers/product")
+const classesRouters = require("./controllers/classes")
+
 const app = express();
 const middleware = require('./utils/middleware');
 
@@ -24,6 +26,7 @@ app.use('/api/auth', authRouters);
 app.use('/api/product', productRouters);
 app.use('/api/profile', profileRouters);
 app.use('/api/exams', examsRouters);
+app.use('/api/classes', classesRouters)
 
 app.use(middleware.unknownEndpoint);
 app.use(middleware.errorHandler);

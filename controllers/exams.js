@@ -9,8 +9,6 @@ const { uploadFile, getFileUrl } = require("../utils/cloudStorage")
 const { getUserById } = require('../utils/helpers/user');
 
 const docRoute = require("./exams.doc");
-const participantRoute = require("./exams.doc.participants");
-const questionsRoute = require("./exams.doc.questions");
 
 const isEmpty = (str) => (!str?.length);
 // Instantiate a express route
@@ -135,8 +133,6 @@ router.get("/", userExtractor, async (req, res, next) => {
 });
 
 router.use("/doc", docRoute);
-router.use("/doc/participants", participantRoute);
-router.use("/doc/questions", questionsRoute);
 
 /*
 const getQuestionImage = (questionId, req) => {
