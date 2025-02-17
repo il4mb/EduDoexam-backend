@@ -2,22 +2,39 @@
   "name": "edudoexam",
   "version": "1.0.0",
   "description": "Status: In Progress 🚧",
+  "type": "module",
   "main": "index.js",
   "scripts": {
     "start": "nodemon env NODE_ENV=production node index.js",
-    "dev": "cross-env NODE_ENV=development nodemon index.js"
+    "dev": "tsc-watch --onSuccess \"concurrently 'tsc-alias' 'ts-add-js-extension --dir=dist' 'npm run dev:server'\"",
+    "dev:server": "cross-env NODE_ENV=development nodemon index.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@google-cloud/storage": "^7.14.0",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "cross-env": "^7.0.3",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
     "firebase": "^11.0.2",
     "firebase-admin": "^13.0.1",
+    "glob": "^11.0.1",
     "multer": "^1.4.5-lts.1",
-    "nodemon": "^3.1.7"
+    "nodemailer": "^6.10.0",
+    "ts-add-js-extension": "^1.6.5"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.8",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^22.13.4",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "nodemon": "^3.1.9",
+    "ts-node": "^10.9.2",
+    "tsc-alias": "^1.8.10",
+    "tsc-watch": "^6.2.1",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.7.3"
   }
 }
